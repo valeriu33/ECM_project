@@ -1,0 +1,97 @@
+﻿@page "/"
+@using System.IO
+@using System.Net
+@using System.Net.Http.Headers
+@using System.Text.Json
+@using Microsoft.Extensions.Configuration
+@using VeryBigShoeCompany.Domain
+@inject IJSRuntime js
+@inject HttpClient Client
+
+<PageTitle>Very Big Shoe Company</PageTitle>
+
+<h1>Upload your file with your orders</h1>
+
+
+<form >
+    <InputFile OnChange="@LoadFile"></InputFile>
+</form>
+<br/>
+<div class="validation-message">@ErrorString</div>
+<button onclick="@DownloadFile" disabled="@(!orders.Any())">Download File</button>
+<ul>
+    @foreach(var order in orders)
+    {
+        <br/>
+        <li >
+            <div>Name: @order.CustomerName</div>
+            <div>Email: @order.CustomerEmail</div>
+            <div>Quantity: @order.Quantity</div>
+            <div>Notes: @order.Notes</div>
+            <div>Size: @order.Size</div>
+            <div>Date Required: @order.DateRequired.ToShortDateString() </div>
+        </li>
+    }
+</ul>
+
+@code {
+    private IBrowserFile loadedFile = null;
+    public List<Order> orders = new();
+    private bool isLoading;
+    public string ErrorString;
+    
+    private async Task LoadFile(InputFileChangeEventArgs e)
+    {
+        isLoading = true;
+        try
+        {
+            var file = e.File;
+            ErrorString = "";
+            
+            var fileContent = 
+                new StreamContent(file.OpenReadStream());
+
+            fileContent.Headers.ContentType = 
+                new MediaTypeHeaderValue(file.ContentType);
+            using var content = new MultipartFormDataContent();
+            
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+            };
+            content.Add(
+                content: fileContent,
+                name: "\"file\"",
+                fileName: file.Name);
+            var path = Path.Combine( "Order", "Receive");
+            var response = 
+                await Client.PostAsync(path, 
+                    content);
+            switch (response.StatusCode)
+            {
+                case HttpStatusCode.OK:
+                    orders = JsonSerializer.Deserialize<List<Order>>(await response.Content.ReadAsStringAsync(), options);
+                    break;
+                case HttpStatusCode.BadRequest:
+                    Console.WriteLine(await response.Content.ReadAsStringAsync());
+                    ErrorString = await response.Content.ReadAsStringAsync();
+                    break;
+            }
+            
+            
+            
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex);
+        }
+
+        isLoading = false;
+    }
+
+    private async Task DownloadFile()
+    {
+        var ordersString = JsonSerializer.Serialize(orders);
+        await js.InvokeAsync<object>("saveFile","Orders.json", ordersString);
+    }
+}
